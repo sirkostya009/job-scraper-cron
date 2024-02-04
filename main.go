@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"time"
 )
 
 type sub struct {
@@ -85,4 +86,6 @@ func main() {
 
 		go scrapeAndUpdate(bot, col, s)
 	}
+
+	time.Sleep(10 * time.Second)
 }
