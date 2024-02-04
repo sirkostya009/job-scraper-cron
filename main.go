@@ -8,8 +8,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
-	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -19,13 +19,14 @@ type sub struct {
 	Data        []string `json:"data"`
 }
 
-var djinniRegex = regexp.MustCompile(`https://djinni\.co/jobs/.*`)
-
 func (s sub) getCrawlerAndSelector() (crawler, string) {
-	if djinniRegex.MatchString(s.Url) {
+	switch {
+	case strings.Contains(s.Url, "djinni.co"):
 		return djinniCrawler, ".list-unstyled"
-	} else {
+	case strings.Contains(s.Url, "jobs.dou.ua"):
 		return douCrawler, ".lt"
+	default:
+		return nil, ""
 	}
 }
 
