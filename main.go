@@ -53,10 +53,6 @@ func scrapeAndUpdate(bot *telego.Bot, col *mongo.Collection, s sub) {
 }
 
 func main() {
-	if hour, _, _ := time.Now().Clock(); hour < 8 && hour > 0 {
-		fmt.Println("It's sleeping time...")
-		return
-	}
 	db, err := mongo.Connect(context.Background(), options.Client().ApplyURI(os.Getenv("MONGO_URL")))
 	if err != nil {
 		fmt.Println("error connecting to mongo:", err)
