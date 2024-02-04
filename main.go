@@ -71,12 +71,6 @@ func main() {
 		fmt.Println("error finding:", err)
 		return
 	}
-	defer func() {
-		err = cursor.Close(context.Background())
-		if err != nil {
-			fmt.Println("error closing cursor:", err)
-		}
-	}()
 
 	for cursor.Next(context.Background()) {
 		var s sub
@@ -88,5 +82,9 @@ func main() {
 		go scrapeAndUpdate(bot, col, s)
 	}
 
+	err = cursor.Close(context.Background())
+	if err != nil {
+		fmt.Println("error closing cursor:", err)
+	}
 	time.Sleep(10 * time.Second)
 }
