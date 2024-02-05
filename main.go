@@ -30,9 +30,23 @@ func (s sub) getCrawlerAndSelector() (crawler, string) {
 	}
 }
 
+func equalNoOrder(s []string, e []string) bool {
+	for _, a := range s {
+		if !slices.Contains(e, a) {
+			return false
+		}
+	}
+	return true
+}
+
 func scrapeAndUpdate(bot *telego.Bot, col *mongo.Collection, s sub) {
 	cr, selector := s.getCrawlerAndSelector()
 	scraped := htmlUlScraper(s.Url, selector, cr)
+
+	// if scraped data is semantically the same as the last scraped data, do nothing
+	if equalNoOrder(scraped, s.Data) {
+		return
+	}
 
 	for _, scr := range scraped {
 		if !slices.Contains(s.Data, scr) {
