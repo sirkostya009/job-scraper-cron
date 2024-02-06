@@ -96,9 +96,13 @@ func main() {
 		go scrapeAndUpdate(bot, col, s)
 	}
 
-	time.Sleep(10 * time.Second)
 	err = cursor.Close(context.Background())
 	if err != nil {
 		fmt.Println("error closing cursor:", err)
+	}
+	time.Sleep(10 * time.Second)
+	err = db.Disconnect(context.Background())
+	if err != nil {
+		fmt.Println("error disconnecting from mongo:", err)
 	}
 }
