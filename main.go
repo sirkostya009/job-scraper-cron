@@ -100,9 +100,9 @@ func main() {
 	if err != nil {
 		fmt.Println("error closing cursor:", err)
 	}
-	time.Sleep(10 * time.Second)
 	err = db.Disconnect(context.Background())
 	if err != nil {
 		fmt.Println("error disconnecting from mongo:", err)
 	}
+	time.Sleep(10 * time.Second)
 }
