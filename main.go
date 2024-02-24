@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mymmrac/telego"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
 	"slices"
 	"strings"
@@ -39,7 +37,7 @@ func equalNoOrder(s []string, e []string) bool {
 	return true
 }
 
-func scrapeAndUpdate(bot *telego.Bot, col *mongo.Collection, s sub) {
+func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
 	cr, selector := s.getCrawlerAndSelector()
 	scraped := htmlUlScraper(s.Url, selector, cr)
 
@@ -60,19 +58,22 @@ func scrapeAndUpdate(bot *telego.Bot, col *mongo.Collection, s sub) {
 	}
 
 	s.Data = scraped
-	_, err := col.UpdateOne(context.Background(), bson.M{"url": s.Url}, bson.M{"$set": s}, options.Update().SetUpsert(true))
+	_, err := pool.Exec(context.Background(), `
+		update subscription
+		set data = $1
+		where url = $2
+	`, s.Data, s.Url)
 	if err != nil {
-		fmt.Println("Failed to update subscription", s.Url, err)
+		bot.Logger().Errorf("Failed to update subscription: %v, %v", s.Url, err)
 	}
 }
 
 func main() {
-	db, err := mongo.Connect(context.Background(), options.Client().ApplyURI(os.Getenv("MONGO_URL")))
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Println("error connecting to mongo:", err)
 		return
 	}
-	col := db.Database("job-scraper").Collection("subscriptions")
 
 	bot, err := telego.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	if err != nil {
@@ -80,29 +81,26 @@ func main() {
 		return
 	}
 
-	cursor, err := col.Find(context.Background(), bson.D{})
+	cursor, err := pool.Query(context.Background(), "select * from subscription")
 	if err != nil {
-		fmt.Println("error finding:", err)
+		bot.Logger().Errorf("error getting subs: %v", err)
 		return
 	}
 
-	for cursor.Next(context.Background()) {
+	for cursor.Next() {
 		var s sub
-		if err = cursor.Decode(&s); err != nil || s.Url == "" || len(s.Subscribers) == 0 {
-			fmt.Println("invalid sub:", err, s)
+		if err = cursor.Scan(&s.Url, &s.Data, &s.Subscribers); err != nil || s.Url == "" || len(s.Subscribers) == 0 {
+			bot.Logger().Errorf("invalid sub: %v, %v", err, s)
 			continue
 		}
 
-		go scrapeAndUpdate(bot, col, s)
+		go scrapeAndUpdate(bot, pool, s)
 	}
 
-	err = cursor.Close(context.Background())
+	cursor.Close()
 	if err != nil {
-		fmt.Println("error closing cursor:", err)
+		bot.Logger().Errorf("error closing cursor: %v", err)
 	}
 	time.Sleep(10 * time.Second)
-	err = db.Disconnect(context.Background())
-	if err != nil {
-		fmt.Println("error disconnecting from mongo:", err)
-	}
+	pool.Close()
 }
