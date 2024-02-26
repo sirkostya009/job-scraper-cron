@@ -28,23 +28,11 @@ func (s sub) getCrawlerAndSelector() (crawler, string) {
 	}
 }
 
-func equalNoOrder(s []string, e []string) bool {
-	for _, a := range s {
-		if !slices.Contains(e, a) {
-			return false
-		}
-	}
-	return true
-}
-
 func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
 	cr, selector := s.getCrawlerAndSelector()
 	scraped := htmlUlScraper(s.Url, selector, cr)
 
-	// if scraped data is semantically the same as the last scraped data, do nothing
-	if equalNoOrder(scraped, s.Data) {
-		return
-	}
+	newScraps := 0
 
 	for _, scr := range scraped {
 		if !slices.Contains(s.Data, scr) {
@@ -54,15 +42,17 @@ func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
 					Text:   scr,
 				})
 			}
+			newScraps++
 		}
 	}
 
+	// if no new data, don't bother updating
+	if newScraps == 0 {
+		return
+	}
+
 	s.Data = scraped
-	_, err := pool.Exec(context.Background(), `
-		update subscription
-		set data = $1
-		where url = $2
-	`, s.Data, s.Url)
+	_, err := pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, s.Data, s.Url)
 	if err != nil {
 		bot.Logger().Errorf("Failed to update subscription: %v, %v", s.Url, err)
 	}
@@ -71,7 +61,7 @@ func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
 func main() {
 	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
-		fmt.Println("error connecting to mongo:", err)
+		fmt.Println("error connecting to postgres:", err)
 		return
 	}
 
