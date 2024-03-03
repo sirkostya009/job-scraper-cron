@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/gocolly/colly"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mymmrac/telego"
 	"os"
@@ -17,20 +18,32 @@ type sub struct {
 	Data        []string `json:"data"`
 }
 
-func (s sub) getCrawlerAndSelector() (crawler, string) {
-	switch {
-	case strings.Contains(s.Url, "djinni.co"):
-		return djinniCrawler, ".list-unstyled"
-	case strings.Contains(s.Url, "jobs.dou.ua"):
-		return douCrawler, ".lt"
-	default:
-		return nil, ""
+func hrefScraper(url, selector, baseUrl string) (scraped []string) {
+	c := colly.NewCollector()
+	c.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
+	c.OnHTML(selector, func(e *colly.HTMLElement) {
+		scraped = append(scraped, baseUrl+e.Attr("href"))
+	})
+	err := c.Visit(url)
+	if err != nil {
+		fmt.Printf("Failed to scrape %s %v\n", err, url)
 	}
+	return
 }
 
 func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
-	cr, selector := s.getCrawlerAndSelector()
-	scraped := htmlUlScraper(s.Url, selector, cr)
+	var selector, url string
+	switch {
+	case strings.Contains(s.Url, "djinni.co"):
+		selector, url = "a[class*=\" job-list\"]", "https://djinni.co"
+	case strings.Contains(s.Url, "jobs.dou.ua"):
+		selector = "a.vt"
+	case strings.Contains(s.Url, "nofluffjobs.com"):
+		selector, url = "nfj-postings-list[listname=\"search\"] a", "https://nofluffjobs.com"
+	default:
+		return
+	}
+	scraped := hrefScraper(s.Url, selector, url)
 
 	newScraps := 0
 
@@ -51,8 +64,7 @@ func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
 		return
 	}
 
-	s.Data = scraped
-	_, err := pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, s.Data, s.Url)
+	_, err := pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, scraped, s.Url)
 	if err != nil {
 		bot.Logger().Errorf("Failed to update subscription: %v, %v", s.Url, err)
 	}
