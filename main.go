@@ -12,10 +12,10 @@ import (
 	"time"
 )
 
-type sub struct {
-	Url         string   `json:"url"`
-	Subscribers []int64  `json:"subscribers"`
-	Data        []string `json:"data"`
+type Subscription struct {
+	Url         string
+	Subscribers []int64
+	Data        []string
 }
 
 func hrefScraper(url, selector, baseUrl string) (scraped []string) {
@@ -31,25 +31,26 @@ func hrefScraper(url, selector, baseUrl string) (scraped []string) {
 	return
 }
 
-func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
+func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, sub Subscription) {
 	var selector, url string
 	switch {
-	case strings.Contains(s.Url, "djinni.co"):
+	case strings.Contains(sub.Url, "djinni.co"):
 		selector, url = "a[class*=\" job-list\"]", "https://djinni.co"
-	case strings.Contains(s.Url, "jobs.dou.ua"):
+	case strings.Contains(sub.Url, "jobs.dou.ua"):
 		selector = "a.vt"
-	case strings.Contains(s.Url, "nofluffjobs.com"):
+	case strings.Contains(sub.Url, "nofluffjobs.com"):
 		selector, url = "nfj-postings-list[listname=\"search\"] a", "https://nofluffjobs.com"
 	default:
+		bot.Logger().Errorf("Unknown url: %v", sub.Url)
 		return
 	}
-	scraped := hrefScraper(s.Url, selector, url)
+	scraped := hrefScraper(sub.Url, selector, url)
 
 	newScraps := 0
 
 	for _, scr := range scraped {
-		if !slices.Contains(s.Data, scr) {
-			for _, id := range s.Subscribers {
+		if !slices.Contains(sub.Data, scr) {
+			for _, id := range sub.Subscribers {
 				go bot.SendMessage(&telego.SendMessageParams{
 					ChatID: telego.ChatID{ID: id},
 					Text:   scr,
@@ -64,22 +65,22 @@ func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, s sub) {
 		return
 	}
 
-	_, err := pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, scraped, s.Url)
+	_, err := pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, scraped, sub.Url)
 	if err != nil {
-		bot.Logger().Errorf("Failed to update subscription: %v, %v", s.Url, err)
+		bot.Logger().Errorf("Failed to update subscription: %v, %v", sub.Url, err)
 	}
 }
 
 func main() {
-	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
-	if err != nil {
-		fmt.Println("error connecting to postgres:", err)
-		return
-	}
-
 	bot, err := telego.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	if err != nil {
 		fmt.Println("error creating bot:", err)
+		return
+	}
+
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		bot.Logger().Errorf("error connecting to postgres: %v", err)
 		return
 	}
 
@@ -90,9 +91,9 @@ func main() {
 	}
 
 	for cursor.Next() {
-		var s sub
+		s := Subscription{}
 		if err = cursor.Scan(&s.Url, &s.Data, &s.Subscribers); err != nil || s.Url == "" || len(s.Subscribers) == 0 {
-			bot.Logger().Errorf("invalid sub: %v, %v", err, s)
+			bot.Logger().Errorf("invalid Subscription: %v, %v", err, s)
 			continue
 		}
 
@@ -100,9 +101,6 @@ func main() {
 	}
 
 	cursor.Close()
-	if err != nil {
-		bot.Logger().Errorf("error closing cursor: %v", err)
-	}
 	time.Sleep(10 * time.Second)
 	pool.Close()
 }
