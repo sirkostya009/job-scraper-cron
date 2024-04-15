@@ -9,7 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
+	"sync"
 )
 
 type Subscription struct {
@@ -31,7 +31,10 @@ func hrefScraper(url, selector, baseUrl string) (scraped []string) {
 	return
 }
 
+var wg sync.WaitGroup
+
 func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, sub Subscription) {
+	defer wg.Done()
 	var selector, url string
 	switch {
 	case strings.Contains(sub.Url, "djinni.co"):
@@ -97,10 +100,11 @@ func main() {
 			continue
 		}
 
+		wg.Add(1)
 		go scrapeAndUpdate(bot, pool, s)
 	}
 
 	cursor.Close()
-	time.Sleep(10 * time.Second)
+	wg.Wait()
 	pool.Close()
 }
