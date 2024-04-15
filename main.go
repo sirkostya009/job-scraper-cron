@@ -18,17 +18,13 @@ type Subscription struct {
 	Data        []string
 }
 
-func hrefScraper(url, selector, baseUrl string) (scraped []string) {
+func hrefScraper(url, selector, baseUrl string) (scraped []string, _ error) {
 	c := colly.NewCollector()
 	c.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
 	c.OnHTML(selector, func(e *colly.HTMLElement) {
 		scraped = append(scraped, baseUrl+e.Attr("href"))
 	})
-	err := c.Visit(url)
-	if err != nil {
-		fmt.Printf("Failed to scrape %s %v\n", err, url)
-	}
-	return
+	return scraped, c.Visit(url)
 }
 
 var wg sync.WaitGroup
@@ -47,17 +43,24 @@ func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, sub Subscription) {
 		bot.Logger().Errorf("Unknown url: %v", sub.Url)
 		return
 	}
-	scraped := hrefScraper(sub.Url, selector, url)
+	scraped, err := hrefScraper(sub.Url, selector, url)
+	if err != nil {
+		bot.Logger().Errorf("Failed to scrape: %v, %v", sub.Url, err)
+		return
+	}
 
 	newScraps := 0
 
 	for _, scr := range scraped {
 		if !slices.Contains(sub.Data, scr) {
 			for _, id := range sub.Subscribers {
-				go bot.SendMessage(&telego.SendMessageParams{
+				_, err = bot.SendMessage(&telego.SendMessageParams{
 					ChatID: telego.ChatID{ID: id},
 					Text:   scr,
 				})
+				if err != nil {
+					bot.Logger().Errorf("Failed to send message: %v, %v", scr, err)
+				}
 			}
 			newScraps++
 		}
@@ -68,7 +71,7 @@ func scrapeAndUpdate(bot *telego.Bot, pool *pgxpool.Pool, sub Subscription) {
 		return
 	}
 
-	_, err := pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, scraped, sub.Url)
+	_, err = pool.Exec(context.Background(), `update subscription set data = $1 where url = $2`, scraped, sub.Url)
 	if err != nil {
 		bot.Logger().Errorf("Failed to update subscription: %v, %v", sub.Url, err)
 	}
